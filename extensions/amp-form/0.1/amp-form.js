@@ -219,7 +219,7 @@ export class AmpForm {
     const isVarSubExpOn = isExperimentOn(this.win_, 'amp-form-var-sub');
     // Fields that support var substitutions.
     const varSubsFields = isVarSubExpOn ? this.form_.querySelectorAll(
-        '[type="hidden"][default-value]') : [];
+        '[type="hidden"][data-amp-replace]') : [];
     if (this.xhrAction_) {
       if (opt_event) {
         opt_event.preventDefault();
@@ -229,11 +229,8 @@ export class AmpForm {
       const isHeadOrGet = this.method_ == 'GET' || this.method_ == 'HEAD';
       const varSubPromises = [];
       for (let i = 0; i < varSubsFields.length; i++) {
-        const variable = varSubsFields[i].getAttribute('default-value');
         varSubPromises.push(
-            this.urlReplacement_.expandStringAsync(variable).then(value => {
-              varSubsFields[i].value = value;
-            }));
+            this.urlReplacement_.expandInputValueAsync(varSubsFields[i]));
       }
       // Wait until all variables have been substituted or 100ms timeout.
       this.waitOnPromisesOrTimeout_(varSubPromises, 100).then(() => {
@@ -251,13 +248,14 @@ export class AmpForm {
           credentials: 'include',
           requireAmpResponseSourceOrigin: true,
         }).then(response => {
-          this.actions_.trigger(this.form_, 'submit-success', null);
+          this.triggerAction_(/* success */ true, response);
           // TODO(mkhatib, #6032): Update docs to reflect analytics events.
           this.analyticsEvent_('amp-form-submit-success');
           this.setState_(FormState_.SUBMIT_SUCCESS);
           this.renderTemplate_(response || {});
         }).catch(error => {
-          this.actions_.trigger(this.form_, 'submit-error', null);
+          this.triggerAction_(
+              /* success */ false, error ? error.responseJson : null);
           this.analyticsEvent_('amp-form-submit-error');
           this.setState_(FormState_.SUBMIT_ERROR);
           this.renderTemplate_(error.responseJson || {});
@@ -276,11 +274,21 @@ export class AmpForm {
     } else if (this.method_ == 'GET') {
       // Non-xhr GET requests replacement should happen synchronously.
       for (let i = 0; i < varSubsFields.length; i++) {
-        const variable = varSubsFields[i].getAttribute('default-value');
-        varSubsFields[i].value = this.urlReplacement_.expandStringSync(
-            variable);
+        this.urlReplacement_.expandInputValueSync(varSubsFields[i]);
       }
     }
+  }
+
+  /**
+   * Triggers either a submit-success or submit-error action with response data.
+   * @param {boolean} success
+   * @param {?JSONType} json
+   * @private
+   */
+  triggerAction_(success, json) {
+    const name = success ? FormState_.SUBMIT_SUCCESS : FormState_.SUBMIT_ERROR;
+    const event = new CustomEvent(`${TAG}.${name}`, {detail: {response: json}});
+    this.actions_.trigger(this.form_, name, event);
   }
 
   /**
@@ -301,7 +309,7 @@ export class AmpForm {
    * @private
    */
   analyticsEvent_(eventType, opt_vars) {
-    triggerAnalyticsEvent(this.win_, eventType, opt_vars);
+    triggerAnalyticsEvent(this.form_, eventType, opt_vars);
   }
 
   /**
